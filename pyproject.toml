@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvewatch"
+version = "0.1.0"
+description = "Linux-Daemon: prueft neue CVEs aus einem RSS-Feed per Mistral API gegen installierte Pakete, patcht automatisch und alarmiert per E-Mail bei Konflikten"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+cvewatch = "cvewatch.cli:main"
+
+[tool.setuptools]
+packages = ["cvewatch"]

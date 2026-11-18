@@ -1,0 +1,32 @@
+[feed]
+url = https://logiqit.de/api/cve/feed.xml?term=microsoft%2Cnext%2Creact&cvss_min=7&limit=50
+timeout_seconds = 60
+
+[daemon]
+interval_hours = 5
+run_on_start = true
+refresh_index = true
+
+[mistral]
+api_key =
+model = mistral-small-latest
+base_url = https://api.mistral.ai/v1
+timeout_seconds = 90
+max_retries = 3
+batch_size = 5
+max_packages = 1500
+temperature = 0.1
+
+[mail]
+smtp_host = 127.0.0.1
+smtp_port = 25
+security = none
+username =
+password =
+from_addr = cvewatch@localhost
+to_addr = admin@example.com
+timeout_seconds = 30
+
+[paths]
+state_db = /var/lib/cvewatch/state.db
+log_file = /var/log/cvewatch/cvewatch.log
