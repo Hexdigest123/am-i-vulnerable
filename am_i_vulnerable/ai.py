@@ -91,6 +91,17 @@ class MistralClient:
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
+    def _request(self, payload):
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                return self._post(payload)
+            except (urllib.error.URLError, KeyError, IndexError, TypeError, ValueError, OSError) as exc:
+                last_error = exc
+                if attempt < self.max_retries - 1:
+                    time.sleep(min(2**attempt, 8))
+        raise AiError(f"Mistral API nach {self.max_retries} Versuchen fehlgeschlagen: {last_error}")
+
     def complete(self, system, user):
         payload = {
             "model": self.model,
@@ -100,16 +111,19 @@ class MistralClient:
                 {"role": "user", "content": user},
             ],
         }
-        last_error = None
-        for attempt in range(self.max_retries):
-            try:
-                data = self._post(payload)
-                return data["choices"][0]["message"]["content"]
-            except (urllib.error.URLError, KeyError, IndexError, TypeError, ValueError, OSError) as exc:
-                last_error = exc
-                if attempt < self.max_retries - 1:
-                    time.sleep(min(2**attempt, 8))
-        raise AiError(f"Mistral API nach {self.max_retries} Versuchen fehlgeschlagen: {last_error}")
+        data = self._request(payload)
+        return data["choices"][0]["message"]["content"]
+
+    def complete_with_tools(self, messages, tools):
+        payload = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+        data = self._request(payload)
+        return data["choices"][0]["message"]
 
     def analyze(self, hostname, distro, packages, cves):
         content = self.complete(SYSTEM_PROMPT, build_user_prompt(hostname, distro, packages, cves))

@@ -2,6 +2,8 @@
 
 Linux-Daemon (Python, nur Standardbibliothek): liest alle 5 Stunden einen CVE-RSS-Feed, prüft jede neue CVE per Mistral API gegen die installierten Pakete, updated betroffene Pakete automatisch und sendet bei Problemen/Konflikten eine Alert-E-Mail.
 
+Der Daemon arbeitet mit einem eingebauten Mini-Agenten (Tool-Calls gegen die Mistral API): `list_packages` (alle oder gefilterte Paketversionen lesen), `update_package` (gezieltes Update eines betroffenen Pakets, Auto-Alert bei Konflikt) und `notify_user` (E-Mail an den Administrator). Konfigurierbar über `[harness]` in der Config (`enabled`, `max_iterations`, `max_updates_per_run`).
+
 ## Quickstart
 
 ```bash

@@ -24,6 +24,11 @@ DEFAULTS = {
         "max_packages": "1500",
         "temperature": "0.1",
     },
+    "harness": {
+        "enabled": "true",
+        "max_iterations": "12",
+        "max_updates_per_run": "20",
+    },
     "mail": {
         "smtp_host": "127.0.0.1",
         "smtp_port": "25",

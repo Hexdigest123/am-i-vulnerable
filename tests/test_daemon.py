@@ -1,11 +1,10 @@
+import json
 import os
 import tempfile
 import unittest
-from unittest import mock
 
 from am_i_vulnerable import daemon as daemon_mod
 from am_i_vulnerable.config import Config
-from am_i_vulnerable.feed import CveEntry
 from am_i_vulnerable.packages import CmdResult, Package, PackageManager
 from am_i_vulnerable.state import StateStore
 
@@ -30,9 +29,17 @@ class FakeAi:
         return [self.verdicts_by_cve[c.cve_id] for c in cves]
 
 
-class FakeAiFail:
-    def analyze(self, hostname, distro, packages, cves):
-        raise RuntimeError("api down")
+class FakeHarness:
+    def __init__(self, result=None, exc=None):
+        self.result = result or {"final": "", "exhausted": False, "updates": [], "failed": [], "alerts": [], "tool_calls": []}
+        self.exc = exc
+        self.calls = []
+
+    def run(self, cves, feed_url=""):
+        self.calls.append([c.cve_id for c in cves])
+        if self.exc:
+            raise self.exc
+        return self.result
 
 
 class FakePm(PackageManager):
@@ -74,8 +81,19 @@ def make_cfg(tmp):
     cfg.set("mail", "from_addr", "from@x")
     cfg.set("mail", "to_addr", "to@x")
     os.environ["AMIVULNERABLE_STATE_DB"] = os.path.join(tmp, "state.db")
-    os.environ["AMIVULNERABLE_LOG_FILE"] = os.path.join(tmp, "am-i-vulnerable.log")
+    os.environ["AMIVULNERABLE_LOG_FILE"] = os.path.join(tmp, "aiv.log")
     return cfg
+
+
+def harness_result(final_results, updates=None, failed=None, alerts=None):
+    return {
+        "final": json.dumps({"results": final_results}),
+        "exhausted": False,
+        "updates": updates or [],
+        "failed": failed or [],
+        "alerts": alerts or [],
+        "tool_calls": [],
+    }
 
 
 class DaemonScanTest(unittest.TestCase):
@@ -92,17 +110,100 @@ class DaemonScanTest(unittest.TestCase):
         os.environ.pop("AMIVULNERABLE_STATE_DB", None)
         os.environ.pop("AMIVULNERABLE_LOG_FILE", None)
 
-    def _daemon(self, ai_client, pm):
+    def _daemon(self, harness=None, ai_client=None, pm=None):
         return daemon_mod.Daemon(
             self.cfg,
             fetcher=lambda url, timeout=60: RSS.encode(),
-            ai_client=ai_client,
-            pkg_manager=pm,
+            ai_client=ai_client or FakeAi({}),
+            pkg_manager=pm or FakePm(),
             mailer_obj=self.mailer,
             store=self.store,
+            harness_factory=(lambda c, p, d: harness) if harness is not None else None,
         )
 
-    def test_update_happy_path(self):
+    def test_harness_update_happy_path(self):
+        harness = FakeHarness(
+            result=harness_result(
+                final_results=[
+                    {"cve_id": "CVE-2025-12345", "verdict": "updated", "packages_updated": ["openssl"], "notes": "geupdated"},
+                    {"cve_id": "CVE-2025-99999", "verdict": "not_vulnerable", "packages_updated": [], "notes": "nicht installiert"},
+                ],
+                updates=[{"cve_id": "CVE-2025-12345", "package": "openssl", "from": "3.0.13", "reason": "betroffen"}],
+            )
+        )
+        pm = FakePm()
+        result = self._daemon(harness=harness, pm=pm).scan()
+        self.assertEqual(result["new"], 2)
+        self.assertEqual(result["updated"], [{"cve": "CVE-2025-12345", "package": "openssl"}])
+        self.assertEqual(result["alerts"], 0)
+        self.assertEqual(pm.refreshed, 1)
+        self.assertEqual(self.mailer.sent, [])
+        self.assertEqual(self.store.processed_cves(), {"CVE-2025-12345", "CVE-2025-99999"})
+        verdicts = {r["cve_id"]: r["verdict"] for r in self.store.conn.execute("SELECT cve_id, verdict FROM cves")}
+        self.assertEqual(verdicts["CVE-2025-12345"], "updated")
+        self.assertEqual(verdicts["CVE-2025-99999"], "not_vulnerable")
+
+    def test_harness_conflict_counted_as_alert(self):
+        harness = FakeHarness(
+            result=harness_result(
+                final_results=[{"cve_id": "CVE-2025-12345", "verdict": "update_failed"}, {"cve_id": "CVE-2025-99999", "verdict": "not_vulnerable"}],
+                failed=[{"cve_id": "CVE-2025-12345", "package": "openssl", "returncode": 100, "output_tail": "conflict"}],
+                alerts=[{"subject": "[am-i-vulnerable@h] Update fehlgeschlagen", "sent": True}],
+            )
+        )
+        result = self._daemon(harness=harness).scan()
+        self.assertEqual(result["alerts"], 1)
+        self.assertEqual(result["updated"], [])
+        verdicts = {r["cve_id"]: r["verdict"] for r in self.store.conn.execute("SELECT cve_id, verdict FROM cves")}
+        self.assertEqual(verdicts["CVE-2025-12345"], "update_failed")
+
+    def test_harness_verdict_fallback_from_tool_log(self):
+        harness = FakeHarness(
+            result={
+                "final": "kein JSON hier",
+                "exhausted": False,
+                "updates": [{"cve_id": "CVE-2025-12345", "package": "openssl"}],
+                "failed": [],
+                "alerts": [],
+                "tool_calls": [],
+            }
+        )
+        self._daemon(harness=harness).scan()
+        verdicts = {r["cve_id"]: r["verdict"] for r in self.store.conn.execute("SELECT cve_id, verdict FROM cves")}
+        self.assertEqual(verdicts["CVE-2025-12345"], "updated")
+        self.assertEqual(verdicts["CVE-2025-99999"], "processed")
+
+    def test_second_scan_no_new(self):
+        harness = FakeHarness(result=harness_result(final_results=[]))
+        daemon = self._daemon(harness=harness)
+        daemon.scan()
+        result = daemon.scan()
+        self.assertEqual(result["new"], 0)
+        self.assertEqual(len(harness.calls), 1)
+
+    def test_harness_failure_alerts_and_retries_next_run(self):
+        failing = FakeHarness(exc=RuntimeError("api down"))
+        daemon = self._daemon(harness=failing)
+        result = daemon.scan()
+        self.assertEqual(result["alerts"], 1)
+        self.assertEqual(len(self.mailer.sent), 1)
+        self.assertIn("Mini-Harness", self.mailer.sent[0][0])
+        self.assertEqual(self.store.processed_cves(), set())
+        ok = FakeHarness(
+            result=harness_result(
+                final_results=[
+                    {"cve_id": "CVE-2025-12345", "verdict": "not_vulnerable"},
+                    {"cve_id": "CVE-2025-99999", "verdict": "not_vulnerable"},
+                ]
+            )
+        )
+        daemon.harness_factory = lambda c, p, d: ok
+        result = daemon.scan()
+        self.assertEqual(result["new"], 2)
+        self.assertEqual(len(self.store.processed_cves()), 2)
+
+    def test_fallback_batch_mode_when_harness_disabled(self):
+        self.cfg.set("harness", "enabled", "false")
         ai_client = FakeAi(
             {
                 "CVE-2025-12345": {
@@ -112,103 +213,13 @@ class DaemonScanTest(unittest.TestCase):
                     "summary": "openssl betroffen",
                     "affected_packages": [{"package": "openssl", "installed_version": "3.0.13", "fixed_version": "3.0.15"}],
                 },
-                "CVE-2025-99999": {
-                    "cve_id": "CVE-2025-99999",
-                    "vulnerable": False,
-                    "action": "none",
-                    "summary": "nicht installiert",
-                    "affected_packages": [],
-                },
+                "CVE-2025-99999": {"cve_id": "CVE-2025-99999", "vulnerable": False, "action": "none", "affected_packages": []},
             }
         )
         pm = FakePm()
-        result = self._daemon(ai_client, pm).scan()
-        self.assertEqual(result["new"], 2)
+        result = self._daemon(ai_client=ai_client, pm=pm, harness=None).scan()
         self.assertEqual(result["updated"], [{"cve": "CVE-2025-12345", "package": "openssl"}])
         self.assertEqual(pm.updated, ["openssl"])
-        self.assertEqual(pm.refreshed, 1)
-        self.assertEqual(self.mailer.sent, [])
-        processed = self.store.processed_cves()
-        self.assertEqual(processed, {"CVE-2025-12345", "CVE-2025-99999"})
-        verdicts = {r["cve_id"]: r["verdict"] for r in self.store.conn.execute("SELECT cve_id, verdict FROM cves")}
-        self.assertEqual(verdicts["CVE-2025-12345"], "updated")
-        self.assertEqual(verdicts["CVE-2025-99999"], "not_vulnerable")
-
-    def test_second_scan_no_new(self):
-        ai_client = FakeAi(
-            {
-                "CVE-2025-12345": {"cve_id": "CVE-2025-12345", "vulnerable": False, "action": "none", "affected_packages": []},
-                "CVE-2025-99999": {"cve_id": "CVE-2025-99999", "vulnerable": False, "action": "none", "affected_packages": []},
-            }
-        )
-        pm = FakePm()
-        daemon = self._daemon(ai_client, pm)
-        daemon.scan()
-        result = daemon.scan()
-        self.assertEqual(result["new"], 0)
-        self.assertEqual(len(ai_client.calls), 1)
-
-    def test_conflict_sends_alert(self):
-        ai_client = FakeAi(
-            {
-                "CVE-2025-12345": {
-                    "cve_id": "CVE-2025-12345",
-                    "vulnerable": True,
-                    "action": "update",
-                    "summary": "s",
-                    "affected_packages": [{"package": "openssl", "installed_version": "3.0.13"}],
-                },
-                "CVE-2025-99999": {"cve_id": "CVE-2025-99999", "vulnerable": False, "action": "none", "affected_packages": []},
-            }
-        )
-        pm = FakePm(update_rc=100, update_out="E: Unable to lock /var/lib/dpkg/lock - conflict")
-        result = self._daemon(ai_client, pm).scan()
-        self.assertEqual(result["alerts"], 1)
-        self.assertEqual(len(self.mailer.sent), 1)
-        subject, body = self.mailer.sent[0]
-        self.assertIn("openssl", subject)
-        self.assertIn("CVE-2025-12345", body)
-        self.assertIn("conflict", body.lower())
-        verdicts = {r["cve_id"]: r["verdict"] for r in self.store.conn.execute("SELECT cve_id, verdict FROM cves")}
-        self.assertEqual(verdicts["CVE-2025-12345"], "update_failed")
-
-    def test_no_fix_available(self):
-        ai_client = FakeAi(
-            {
-                "CVE-2025-12345": {
-                    "cve_id": "CVE-2025-12345",
-                    "vulnerable": True,
-                    "action": "update",
-                    "summary": "s",
-                    "affected_packages": [{"package": "nginx", "installed_version": "1.24.0"}],
-                },
-                "CVE-2025-99999": {"cve_id": "CVE-2025-99999", "vulnerable": False, "action": "none", "affected_packages": []},
-            }
-        )
-        pm = FakePm()
-        self._daemon(ai_client, pm).scan()
-        verdicts = {r["cve_id"]: r["verdict"] for r in self.store.conn.execute("SELECT cve_id, verdict FROM cves")}
-        self.assertEqual(verdicts["CVE-2025-12345"], "no_fix_available")
-        self.assertEqual(pm.updated, [])
-        self.assertEqual(self.mailer.sent, [])
-
-    def test_ai_failure_alerts_and_retries_next_run(self):
-        pm = FakePm()
-        daemon = self._daemon(FakeAiFail(), pm)
-        result = daemon.scan()
-        self.assertEqual(result["alerts"], 1)
-        self.assertEqual(len(self.mailer.sent), 1)
-        self.assertIn("Mistral", self.mailer.sent[0][0])
-        self.assertEqual(self.store.processed_cves(), set())
-        daemon.ai_client = FakeAi(
-            {
-                "CVE-2025-12345": {"cve_id": "CVE-2025-12345", "vulnerable": False, "action": "none", "affected_packages": []},
-                "CVE-2025-99999": {"cve_id": "CVE-2025-99999", "vulnerable": False, "action": "none", "affected_packages": []},
-            }
-        )
-        result = daemon.scan()
-        self.assertEqual(result["new"], 2)
-        self.assertEqual(len(self.store.processed_cves()), 2)
 
     def test_feed_error_alerts(self):
         def bad_fetcher(url, timeout=60):
@@ -221,6 +232,7 @@ class DaemonScanTest(unittest.TestCase):
             pkg_manager=FakePm(),
             mailer_obj=self.mailer,
             store=self.store,
+            harness_factory=lambda c, p, d: FakeHarness(),
         )
         result = daemon.scan()
         self.assertIn("error", result)

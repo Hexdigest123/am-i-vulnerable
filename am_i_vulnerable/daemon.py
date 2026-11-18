@@ -7,7 +7,7 @@ import socket
 import time
 import traceback
 
-from . import ai, feed, mailer, packages
+from . import ai, feed, harness as harness_mod, mailer, packages
 from . import state as state_mod
 
 log = logging.getLogger("am-i-vulnerable")
@@ -32,13 +32,14 @@ def setup_logging(log_file=None):
 
 
 class Daemon:
-    def __init__(self, cfg, fetcher=None, ai_client=None, pkg_manager=None, mailer_obj=None, store=None):
+    def __init__(self, cfg, fetcher=None, ai_client=None, pkg_manager=None, mailer_obj=None, store=None, harness_factory=None):
         self.cfg = cfg
         self.fetcher = fetcher or feed.fetch
         self.ai_client = ai_client
         self.pkg_manager = pkg_manager
         self.mailer = mailer_obj
         self.store = store or state_mod.StateStore(cfg.state_db())
+        self.harness_factory = harness_factory
         self.hostname = socket.gethostname()
         self._stop = False
         self._lock_fh = None
@@ -158,14 +159,19 @@ class Daemon:
                         self._alert_body(cmd=res),
                     )
                     alerts += 1
+            distro = self._distro()
+            client = self._get_ai_client()
+            if self.cfg.get_bool("harness", "enabled", True):
+                alerts += self._run_harness(client, pm, distro, new_entries, updated)
+                self.store.record_run(started, "ok", f"{new_count} neue CVEs via Mini-Harness geprueft", new_count, updated, alerts)
+                log.info("Scan fertig: %d neu, %d Updates, %d Alerts", new_count, len(updated), alerts)
+                return {"new": new_count, "updated": updated, "alerts": alerts}
             installed = pm.list_installed()
             max_packages = self.cfg.get_int("mistral", "max_packages", 1500)
             if len(installed) > max_packages:
                 log.warning("Paketliste wird auf %d Eintraege begrenzt", max_packages)
                 installed = installed[:max_packages]
-            distro = self._distro()
             batch_size = max(1, self.cfg.get_int("mistral", "batch_size", 5))
-            client = self._get_ai_client()
             for offset in range(0, len(new_entries), batch_size):
                 batch = new_entries[offset : offset + batch_size]
                 try:
@@ -200,6 +206,49 @@ class Daemon:
                 self._lock_fh.close()
                 self._lock_fh = None
                 self._owns_lock = False
+
+    def _run_harness(self, client, pm, distro, new_entries, updated):
+        factory = self.harness_factory
+        if factory is None:
+            factory = lambda c, p, d: harness_mod.Harness(c, p, self._get_mailer, self.store, self.hostname, self.cfg, d)
+        try:
+            harness = factory(client, pm, distro)
+            result = harness.run(new_entries, feed_url=self.cfg.feed_url)
+        except Exception as exc:
+            log.error("Mini-Harness fehlgeschlagen: %s", exc)
+            self.send_alert(
+                "Mini-Harness (Mistral API) fehlgeschlagen - CVEs werden beim naechsten Lauf erneut geprueft",
+                self._alert_body(error=str(exc), cves=[entry.cve_id for entry in new_entries]),
+            )
+            return 1
+        updated.extend({"cve": u.get("cve_id") or "", "package": u["package"]} for u in result.get("updates", []))
+        alerts = len(result.get("alerts", []))
+        verdict_map = {}
+        try:
+            final_data = ai.extract_json(result.get("final", ""))
+            for item in final_data.get("results", []):
+                if isinstance(item, dict) and item.get("cve_id"):
+                    verdict_map[str(item["cve_id"]).upper()] = item
+        except ai.AiError:
+            log.warning("Harness-Abschluss nicht als JSON parsebar - Verdikte werden aus dem Tool-Log abgeleitet")
+        for entry in new_entries:
+            item = verdict_map.get(entry.cve_id, {})
+            verdict = item.get("verdict")
+            if not verdict:
+                if any(u.get("cve_id") == entry.cve_id for u in result.get("updates", [])):
+                    verdict = "updated"
+                elif any(f.get("cve_id") == entry.cve_id for f in result.get("failed", [])):
+                    verdict = "update_failed"
+                elif result.get("exhausted"):
+                    verdict = "investigate"
+                else:
+                    verdict = "processed"
+            self.store.mark_processed(
+                entry.cve_id,
+                verdict,
+                {"harness": item, "published": entry.published, "exhausted": result.get("exhausted", False)},
+            )
+        return alerts
 
     def _distro(self):
         try:

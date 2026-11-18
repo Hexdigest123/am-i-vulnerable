@@ -98,5 +98,42 @@ class AnalyzeTest(unittest.TestCase):
             ai.MistralClient("")
 
 
+class ToolsTest(unittest.TestCase):
+    def test_complete_with_tools_payload_and_message(self):
+        captured = {}
+
+        class ToolClient(ai.MistralClient):
+            def __init__(self):
+                super().__init__("key", max_retries=1)
+
+            def _post(self, payload):
+                captured.update(payload)
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {"name": "list_packages", "arguments": "{}"},
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                }
+
+        tools = [{"type": "function", "function": {"name": "list_packages", "parameters": {"type": "object"}}}]
+        msg = ToolClient().complete_with_tools([{"role": "user", "content": "hi"}], tools)
+        self.assertEqual(captured["tool_choice"], "auto")
+        self.assertEqual(captured["tools"], tools)
+        self.assertEqual(captured["messages"], [{"role": "user", "content": "hi"}])
+        self.assertEqual(msg["tool_calls"][0]["function"]["name"], "list_packages")
+        self.assertEqual(msg["tool_calls"][0]["id"], "call_1")
+
+
 if __name__ == "__main__":
     unittest.main()

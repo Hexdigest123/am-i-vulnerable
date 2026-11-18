@@ -7,6 +7,11 @@ interval_hours = 5
 run_on_start = true
 refresh_index = true
 
+[harness]
+enabled = true
+max_iterations = 12
+max_updates_per_run = 20
+
 [mistral]
 api_key =
 model = mistral-small-latest
