@@ -3,11 +3,11 @@ import tempfile
 import unittest
 from unittest import mock
 
-from cvewatch import daemon as daemon_mod
-from cvewatch.config import Config
-from cvewatch.feed import CveEntry
-from cvewatch.packages import CmdResult, Package, PackageManager
-from cvewatch.state import StateStore
+from am_i_vulnerable import daemon as daemon_mod
+from am_i_vulnerable.config import Config
+from am_i_vulnerable.feed import CveEntry
+from am_i_vulnerable.packages import CmdResult, Package, PackageManager
+from am_i_vulnerable.state import StateStore
 
 
 RSS = """<?xml version="1.0"?>
@@ -73,8 +73,8 @@ def make_cfg(tmp):
     cfg.set("daemon", "refresh_index", "true")
     cfg.set("mail", "from_addr", "from@x")
     cfg.set("mail", "to_addr", "to@x")
-    os.environ["CVEWATCH_STATE_DB"] = os.path.join(tmp, "state.db")
-    os.environ["CVEWATCH_LOG_FILE"] = os.path.join(tmp, "cvewatch.log")
+    os.environ["AMIVULNERABLE_STATE_DB"] = os.path.join(tmp, "state.db")
+    os.environ["AMIVULNERABLE_LOG_FILE"] = os.path.join(tmp, "am-i-vulnerable.log")
     return cfg
 
 
@@ -89,8 +89,8 @@ class DaemonScanTest(unittest.TestCase):
     def tearDown(self):
         self.store.close()
         self.tmp.cleanup()
-        os.environ.pop("CVEWATCH_STATE_DB", None)
-        os.environ.pop("CVEWATCH_LOG_FILE", None)
+        os.environ.pop("AMIVULNERABLE_STATE_DB", None)
+        os.environ.pop("AMIVULNERABLE_LOG_FILE", None)
 
     def _daemon(self, ai_client, pm):
         return daemon_mod.Daemon(

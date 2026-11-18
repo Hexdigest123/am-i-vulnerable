@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from cvewatch import feed
+from am_i_vulnerable import feed
 
 
 RSS_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>

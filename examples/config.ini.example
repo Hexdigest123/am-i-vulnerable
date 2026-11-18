@@ -23,10 +23,10 @@ smtp_port = 25
 security = none
 username =
 password =
-from_addr = cvewatch@localhost
+from_addr = am-i-vulnerable@localhost
 to_addr = admin@example.com
 timeout_seconds = 30
 
 [paths]
-state_db = /var/lib/cvewatch/state.db
-log_file = /var/log/cvewatch/cvewatch.log
+state_db = /var/lib/am-i-vulnerable/state.db
+log_file = /var/log/am-i-vulnerable/am-i-vulnerable.log

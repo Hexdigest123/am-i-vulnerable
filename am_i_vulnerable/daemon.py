@@ -10,7 +10,7 @@ import traceback
 from . import ai, feed, mailer, packages
 from . import state as state_mod
 
-log = logging.getLogger("cvewatch")
+log = logging.getLogger("am-i-vulnerable")
 
 
 def setup_logging(log_file=None):
@@ -114,7 +114,7 @@ class Daemon:
         return self.mailer
 
     def send_alert(self, subject, body, cve_id=None, package=None):
-        full_subject = f"[cvewatch@{self.hostname}] {subject}"
+        full_subject = f"[am-i-vulnerable@{self.hostname}] {subject}"
         log.warning("ALERT: %s", subject)
         try:
             self._get_mailer().send(full_subject, body)
@@ -296,7 +296,7 @@ class Daemon:
         lines = [
             f"Host: {self.hostname}",
             f"Zeit (UTC): {state_mod.utcnow()}",
-            "Daemon: cvewatch",
+            "Daemon: am-i-vulnerable",
             "",
         ]
         if cve:

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from cvewatch.config import Config
+from am_i_vulnerable.config import Config
 
 
 INI = """
@@ -24,7 +24,7 @@ to_addr = admin@example.com
 class ConfigTest(unittest.TestCase):
     def test_load_and_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "cvewatch.ini")
+            path = os.path.join(tmp, "config.ini")
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(INI)
             cfg = Config(path)
@@ -37,7 +37,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_env_overrides(self):
         cfg = Config()
-        with mock.patch.dict(os.environ, {"MISTRAL_API_KEY": "env-key", "CVEWATCH_SMTP_PASSWORD": "env-pass"}):
+        with mock.patch.dict(os.environ, {"MISTRAL_API_KEY": "env-key", "AMIVULNERABLE_SMTP_PASSWORD": "env-pass"}):
             self.assertEqual(cfg.api_key(), "env-key")
             self.assertEqual(cfg.smtp_password(), "env-pass")
         cfg.set("mistral", "api_key", "ini-key")
@@ -49,7 +49,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_save_permissions_and_masked(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "cfg", "cvewatch.ini")
+            path = os.path.join(tmp, "cfg", "config.ini")
             cfg = Config()
             cfg.set("mistral", "api_key", "secret-key-123")
             cfg.set("mail", "password", "smtp-pass")
@@ -66,7 +66,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_state_db_env_override(self):
         cfg = Config()
-        with mock.patch.dict(os.environ, {"CVEWATCH_STATE_DB": "/tmp/x.db"}):
+        with mock.patch.dict(os.environ, {"AMIVULNERABLE_STATE_DB": "/tmp/x.db"}):
             self.assertEqual(cfg.state_db(), "/tmp/x.db")
 
 

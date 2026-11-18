@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
-USER_AGENT = "cvewatch/0.1 (+https://github.com/Hexdigest123/am-i-vulnerable)"
+USER_AGENT = "am-i-vulnerable/0.1 (+https://github.com/Hexdigest123/am-i-vulnerable)"
 
 
 class FeedError(Exception):

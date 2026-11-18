@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from cvewatch.state import StateStore
+from am_i_vulnerable.state import StateStore
 
 
 class StateStoreTest(unittest.TestCase):
@@ -24,8 +24,8 @@ class StateStoreTest(unittest.TestCase):
 
     def test_runs_and_alerts(self):
         self.store.record_run("2025-01-01T00:00:00+00:00", "ok", "2 neue CVEs", 2, [{"cve": "CVE-2025-1", "package": "openssl"}], 0)
-        self.store.record_alert("[cvewatch] x", cve_id="CVE-2025-1", package="openssl", ok=True)
-        self.store.record_alert("[cvewatch] y", ok=False, error="smtp down")
+        self.store.record_alert("[am-i-vulnerable] x", cve_id="CVE-2025-1", package="openssl", ok=True)
+        self.store.record_alert("[am-i-vulnerable] y", ok=False, error="smtp down")
         self.store.mark_processed("CVE-2025-1", "updated")
         runs = self.store.recent_runs()
         self.assertEqual(len(runs), 1)

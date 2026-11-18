@@ -1,8 +1,8 @@
 import unittest
 from unittest import mock
 
-from cvewatch import packages
-from cvewatch.packages import (
+from am_i_vulnerable import packages
+from am_i_vulnerable.packages import (
     AptManager,
     CmdResult,
     Package,

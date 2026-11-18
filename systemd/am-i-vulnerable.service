@@ -1,0 +1,17 @@
+[Unit]
+Description=am-i-vulnerable - prueft regelmaessig neue CVEs (RSS-Feed + Mistral KI) gegen installierte Pakete und patcht automatisch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/am-i-vulnerable
+Environment=AMIVULNERABLE_CONFIG=/etc/am-i-vulnerable/config.ini
+EnvironmentFile=-/etc/am-i-vulnerable/am-i-vulnerable.env
+ExecStart=/usr/bin/python3 -m am_i_vulnerable run
+Restart=always
+RestartSec=30s
+
+[Install]
+WantedBy=multi-user.target

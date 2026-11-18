@@ -38,7 +38,7 @@ def cmd_setup(args):
             cfg.set(section, key, result)
         return result
 
-    print("cvewatch Einrichtung")
+    print("am-i-vulnerable Einrichtung")
     print("====================")
     value(args.feed_url, "feed", "url", "RSS/CVE-Feed-URL", default=config_mod.DEFAULT_FEED_URL)
     value(args.interval_hours, "daemon", "interval_hours", "Pruef-Intervall in Stunden", default="5")
@@ -59,14 +59,14 @@ def cmd_setup(args):
         entered = input(f"SMTP-Sicherheit (none/starttls/ssl) [{current}]: ").strip().lower()
         cfg.set("mail", "security", entered or current)
     value(args.smtp_username, "mail", "username", "SMTP-Benutzername (leer = kein Login)")
-    smtp_password = args.smtp_password if args.smtp_password is not None else os.environ.get("CVEWATCH_SMTP_PASSWORD")
+    smtp_password = args.smtp_password if args.smtp_password is not None else os.environ.get("AMIVULNERABLE_SMTP_PASSWORD")
     if smtp_password:
         cfg.set("mail", "password", smtp_password)
     elif interactive:
-        entered = getpass.getpass("SMTP-Passwort (leer = Umgebungsvariable CVEWATCH_SMTP_PASSWORD oder keins): ").strip()
+        entered = getpass.getpass("SMTP-Passwort (leer = Umgebungsvariable AMIVULNERABLE_SMTP_PASSWORD oder keins): ").strip()
         if entered:
             cfg.set("mail", "password", entered)
-    value(args.from_addr, "mail", "from_addr", "Absender-Adresse", default=f"cvewatch@{hostname}")
+    value(args.from_addr, "mail", "from_addr", "Absender-Adresse", default=f"am-i-vulnerable@{hostname}")
     value(args.to_addr, "mail", "to_addr", "Empfaenger-Adresse (Alerts)")
     saved = cfg.save(path)
     print(f"Konfiguration gespeichert: {saved} (chmod 600)")
@@ -96,8 +96,8 @@ def _run_test_mail(cfg):
         timeout=cfg.get_int("mail", "timeout_seconds", 30),
     )
     mailer.send(
-        f"[cvewatch@{socket.gethostname()}] Test-E-Mail",
-        f"cvewatch auf {socket.gethostname()} funktioniert.\nFeed: {cfg.feed_url}\nZeit (UTC): {state_mod.utcnow()}",
+        f"[am-i-vulnerable@{socket.gethostname()}] Test-E-Mail",
+        f"am-i-vulnerable auf {socket.gethostname()} funktioniert.\nFeed: {cfg.feed_url}\nZeit (UTC): {state_mod.utcnow()}",
     )
     print("Test-E-Mail versendet.")
 
@@ -193,14 +193,14 @@ def cmd_show_config(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="cvewatch",
+        prog="am-i-vulnerable",
         description=(
-            "cvewatch: Linux-Daemon, der in einem konfigurierbaren Intervall (Standard: 5h) einen CVE-RSS-Feed liest, "
+            "am-i-vulnerable: Linux-Daemon, der in einem konfigurierbaren Intervall (Standard: 5h) einen CVE-RSS-Feed liest, "
             "neue CVEs per Mistral API gegen die installierten Pakete prueft, betroffene Pakete automatisch updated "
             "und bei Problemen/Konflikten eine Alert-E-Mail versendet."
         ),
     )
-    parser.add_argument("--config", help="Pfad zur INI-Konfiguration (Alternative: Umgebungsvariable CVEWATCH_CONFIG)")
+    parser.add_argument("--config", help="Pfad zur INI-Konfiguration (Alternative: Umgebungsvariable AMIVULNERABLE_CONFIG)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_setup = sub.add_parser("setup", help="Interaktive CLI-Einrichtung (Feed-URL, Mistral-Key, SMTP/Mail, Intervall)")
@@ -212,13 +212,13 @@ def build_parser():
     p_setup.add_argument("--smtp-port", help="SMTP-Port")
     p_setup.add_argument("--smtp-security", choices=["none", "starttls", "ssl"], help="SMTP-Verschluesselung")
     p_setup.add_argument("--smtp-username", help="SMTP-Benutzername")
-    p_setup.add_argument("--smtp-password", help="SMTP-Passwort (Alternative: CVEWATCH_SMTP_PASSWORD)")
+    p_setup.add_argument("--smtp-password", help="SMTP-Passwort (Alternative: AMIVULNERABLE_SMTP_PASSWORD)")
     p_setup.add_argument("--from-addr", help="Absender-Adresse der Alert-Mails")
     p_setup.add_argument("--to-addr", help="Empfaenger-Adresse der Alert-Mails")
     p_setup.add_argument("--non-interactive", action="store_true", help="Keine Rueckfragen, nur Flags/Defaults uebernehmen")
     p_setup.set_defaults(func=cmd_setup)
 
-    p_install = sub.add_parser("install", help="Nach /opt/cvewatch installieren + systemd-Service einrichten (root)")
+    p_install = sub.add_parser("install", help="Nach /opt/am-i-vulnerable installieren + systemd-Service einrichten (root)")
     p_install.add_argument("--start", action="store_true", help="Service direkt starten")
     p_install.set_defaults(func=cmd_install)
 

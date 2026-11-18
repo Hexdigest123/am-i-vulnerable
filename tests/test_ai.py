@@ -1,9 +1,9 @@
 import unittest
 import urllib.error
 
-from cvewatch import ai
-from cvewatch.feed import CveEntry
-from cvewatch.packages import Package
+from am_i_vulnerable import ai
+from am_i_vulnerable.feed import CveEntry
+from am_i_vulnerable.packages import Package
 
 
 class ExtractJsonTest(unittest.TestCase):

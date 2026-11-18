@@ -42,21 +42,21 @@ SECRET_KEYS = {("mistral", "api_key"), ("mail", "password")}
 
 def _default_state_db():
     if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return "/var/lib/cvewatch/state.db"
-    return str(Path.home() / ".local" / "share" / "cvewatch" / "state.db")
+        return "/var/lib/am-i-vulnerable/state.db"
+    return str(Path.home() / ".local" / "share" / "am-i-vulnerable" / "state.db")
 
 
 def _default_log_file():
     if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return "/var/log/cvewatch/cvewatch.log"
-    return str(Path.home() / ".local" / "share" / "cvewatch" / "cvewatch.log")
+        return "/var/log/am-i-vulnerable/am-i-vulnerable.log"
+    return str(Path.home() / ".local" / "share" / "am-i-vulnerable" / "am-i-vulnerable.log")
 
 
 def default_config_path():
-    env = os.environ.get("CVEWATCH_CONFIG")
+    env = os.environ.get("AMIVULNERABLE_CONFIG")
     if env:
         return env
-    for candidate in ("/etc/cvewatch/cvewatch.ini", os.path.join(os.getcwd(), "cvewatch.ini")):
+    for candidate in ("/etc/am-i-vulnerable/config.ini", os.path.join(os.getcwd(), "config.ini")):
         if os.path.exists(candidate):
             return candidate
     return None
@@ -64,8 +64,8 @@ def default_config_path():
 
 def suggested_config_path():
     if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return "/etc/cvewatch/cvewatch.ini"
-    return str(Path.home() / ".config" / "cvewatch" / "cvewatch.ini")
+        return "/etc/am-i-vulnerable/config.ini"
+    return str(Path.home() / ".config" / "am-i-vulnerable" / "config.ini")
 
 
 class Config:
@@ -113,13 +113,13 @@ class Config:
         return os.environ.get("MISTRAL_API_KEY") or self.get("mistral", "api_key", "") or ""
 
     def smtp_password(self):
-        return os.environ.get("CVEWATCH_SMTP_PASSWORD") or self.get("mail", "password", "") or ""
+        return os.environ.get("AMIVULNERABLE_SMTP_PASSWORD") or self.get("mail", "password", "") or ""
 
     def state_db(self):
-        return os.environ.get("CVEWATCH_STATE_DB") or self.get("paths", "state_db") or _default_state_db()
+        return os.environ.get("AMIVULNERABLE_STATE_DB") or self.get("paths", "state_db") or _default_state_db()
 
     def log_file(self):
-        return os.environ.get("CVEWATCH_LOG_FILE") or self.get("paths", "log_file") or _default_log_file()
+        return os.environ.get("AMIVULNERABLE_LOG_FILE") or self.get("paths", "log_file") or _default_log_file()
 
     def save(self, path=None):
         path = path or self.path or suggested_config_path()

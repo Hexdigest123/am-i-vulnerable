@@ -1,8 +1,8 @@
 import unittest
 from unittest import mock
 
-from cvewatch import mailer
-from cvewatch.mailer import MailError, Mailer, build_message
+from am_i_vulnerable import mailer
+from am_i_vulnerable.mailer import MailError, Mailer, build_message
 
 
 class FakeSMTP:

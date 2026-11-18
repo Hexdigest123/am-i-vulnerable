@@ -13,7 +13,7 @@ def build_message(from_addr, to_addr, subject, body):
     msg["To"] = to_addr
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid("cvewatch")
+    msg["Message-ID"] = make_msgid("am-i-vulnerable")
     msg.set_content(body)
     return msg
 
