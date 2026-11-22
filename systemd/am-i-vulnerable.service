@@ -1,0 +1,15 @@
+[Unit]
+Description=Am I Vulnerable vulnerability watcher
+Documentation=https://github.com/Hexdigest123/am-i-vulnerable
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/am-i-vulnerable
+Environment=AMI_VULNERABLE_INTERVAL_SECONDS=18000
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
