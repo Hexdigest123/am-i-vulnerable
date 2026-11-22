@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build
         run: make
@@ -32,7 +32,7 @@ jobs:
         run: make dist
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: am-i-vulnerable-${{ github.sha }}
           path: dist/*.tar.gz
