@@ -39,6 +39,28 @@ The check interval defaults to 5 hours and can be overridden with
 AMI_VULNERABLE_INTERVAL_SECONDS=60 ./am-i-vulnerable
 ```
 
+## Security notes
+
+- Release builds require root (the package managers need it) and only accept
+  an `https://` feed URL; plain-HTTP or control-character URLs are rejected.
+- The feed is parsed with libxml2 in its safest mode: no network access, no
+  external entities, no DTD loading, no recovery of malformed documents.
+- Package updates are executed with `fork()`/`execve()` — never through a
+  shell — and package names are validated against a conservative charset.
+- An update is only run when the feed entry's `ecosystem` matches the host
+  platform **and** the installed version compares older than the feed's
+  `fixed` version (dpkg-style comparison). Each `name=fixed` pair is handled
+  once per run and every action is logged to the journal.
+- The systemd unit runs the daemon as root but with a hardened sandbox
+  (`NoNewPrivileges`, `ProtectSystem=strict`, capability bounding, syscall
+  filtering, ...). `systemd-analyze security` should no longer report
+  "UNSAFE".
+- The config file is opened with `O_NOFOLLOW` and must be a regular file;
+  it is created with mode `0640`.
+- The binary is built with `-fstack-protector-strong -D_FORTIFY_SOURCE=3
+  -fPIE -pie -Wl,-z,relro,-z,now`; these flags are appended separately from
+  `CFLAGS`/`LDFLAGS` so environment overrides cannot drop them.
+
 ## Install
 
 ```bash

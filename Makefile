@@ -5,6 +5,11 @@ CPPFLAGS ?=
 LDFLAGS ?=
 LDLIBS ?=
 
+# Hardening flags are appended separately from CFLAGS/LDFLAGS so that an
+# environment override (e.g. from CI) cannot silently drop them.
+HARDEN_CFLAGS := -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE
+HARDEN_LDFLAGS := -pie -Wl,-z,relro,-z,now
+
 CPPFLAGS += $(shell $(PKG_CONFIG) --cflags libcurl libxml-2.0)
 LDLIBS += $(shell $(PKG_CONFIG) --libs libcurl libxml-2.0)
 
@@ -36,16 +41,16 @@ DIST_NAME := $(TARGET)-$(VERSION)-$(GIT_REV)
 all: $(TARGET)
 
 $(TARGET): $(OBJS) FORCE
-	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
+	$(CC) $(HARDEN_LDFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
 FORCE:
 
 dev:
 	$(MAKE) DEV=1
-	exec ./$(TARGET)
+	./$(TARGET)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c VERSION | $(BUILD_DIR)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -DVERSION=\"$(VERSION)\" -MMD -MP -c -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(HARDEN_CFLAGS) -DVERSION=\"$(VERSION)\" -MMD -MP -c -o $@ $<
 
 $(BUILD_DIR):
 	mkdir -p $@

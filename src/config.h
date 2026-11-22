@@ -1,9 +1,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <stdio.h>
+
 #define PAIR_AMOUNT 64
 #define PAIR_SIZE 1024
-#define INTERVAL_SECONDS 18000U /* 5 hours */
+#define INTERVAL_SECONDS 18000U
 #define NAME "am-i-vulnerable"
 
 #ifndef CONFIG_PATH
@@ -30,9 +32,9 @@ typedef struct Config {
   unsigned int interval;
 } Config;
 
-void parse_config(Config *config);
+void parse_config(Config *config, FILE *file);
 void load_platform(Config *config);
 void load_config(Config *config);
-void write_config(Config *config);
+int write_config(Config *config);
 void cleanup_config(Config *config);
 #endif

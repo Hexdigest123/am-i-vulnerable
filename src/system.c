@@ -1,46 +1,122 @@
-#include "config.h"
 #define _POSIX_C_SOURCE 200809L
 
 #include "system.h"
-#include <stdlib.h>
 
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
-void load_packages(Config *config, Package *packages) {
-  const char *manager = PACKAGE_MANAGER[config->platform];
-  const char *arguments;
-  char command[PAIR_SIZE];
-  char line[PAIR_SIZE];
+static const char *const APT_LIST_ARGS[] = {"apt", "list", "--installed", NULL};
+static const char *const DNF_LIST_ARGS[] = {"dnf", "-q", "list", "installed",
+                                            NULL};
+static const char *const PACMAN_LIST_ARGS[] = {"pacman", "-Q", NULL};
+
+static int is_valid_package_name(const char *name) {
+  const char *p;
+
+  if (name == NULL || !isalnum((unsigned char)name[0])) {
+    return 0;
+  }
+  for (p = name + 1; *p != '\0'; p++) {
+    unsigned char c = (unsigned char)*p;
+    if (!isalnum(c) && c != '+' && c != '-' && c != '.' && c != '_') {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static pid_t run_capture(const char *const argv[], FILE **out) {
+  int fds[2];
+  pid_t pid;
+
+  if (pipe(fds) == -1) {
+    return -1;
+  }
+
+  pid = fork();
+  if (pid == -1) {
+    close(fds[0]);
+    close(fds[1]);
+    return -1;
+  }
+
+  if (pid == 0) {
+    close(fds[0]);
+    if (dup2(fds[1], STDOUT_FILENO) == -1) {
+      _exit(127);
+    }
+    close(fds[1]);
+    execvp(argv[0], (char *const *)argv);
+    _exit(127);
+  }
+
+  close(fds[1]);
+  *out = fdopen(fds[0], "r");
+  if (*out == NULL) {
+    close(fds[0]);
+    waitpid(pid, NULL, 0);
+    return -1;
+  }
+  return pid;
+}
+
+static int run_command(const char *const argv[]) {
+  pid_t pid;
+  int status;
+
+  pid = fork();
+  if (pid == -1) {
+    return -1;
+  }
+
+  if (pid == 0) {
+    execvp(argv[0], (char *const *)argv);
+    fprintf(stderr, "failed to execute '%s': %s\n", argv[0], strerror(errno));
+    _exit(127);
+  }
+
+  if (waitpid(pid, &status, 0) == -1) {
+    return -1;
+  }
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+    return 0;
+  }
+  return -1;
+}
+
+int load_packages(Config *config, Package *packages) {
+  const char *const *argv;
   FILE *pipe;
+  pid_t pid;
+  char line[PAIR_SIZE];
   size_t count = 0;
-
-  packages[0].name = NULL;
-  packages[0].version = NULL;
+  int status;
 
   switch (config->platform) {
   case UBUNTU:
   case DEBIAN:
-    arguments = "list --installed";
+    argv = APT_LIST_ARGS;
     break;
   case FEDORA:
-    arguments = "-q list installed";
+    argv = DNF_LIST_ARGS;
     break;
   case ARCH:
-    arguments = "-Q";
+    argv = PACMAN_LIST_ARGS;
     break;
   default:
     fprintf(stderr, "cannot list packages, platform is unknown\n");
-    return;
+    return -1;
   }
 
-  snprintf(command, sizeof(command), "%s %s", manager, arguments);
-
-  pipe = popen(command, "r");
-  if (pipe == NULL) {
-    fprintf(stderr, "failed to run '%s': %s\n", command, strerror(errno));
-    return;
+  pid = run_capture(argv, &pipe);
+  if (pid == -1) {
+    fprintf(stderr, "failed to run '%s': %s\n", argv[0], strerror(errno));
+    return -1;
   }
 
   while (count + 1 < SYSTEM_MAX_PACKAGES &&
@@ -71,7 +147,6 @@ void load_packages(Config *config, Package *packages) {
       *version_end = '\0';
     }
 
-    /* apt prints the suite as 'name/suite', drop it. */
     separator = strchr(name, '/');
     if (separator != NULL) {
       *separator = '\0';
@@ -79,54 +154,82 @@ void load_packages(Config *config, Package *packages) {
 
     packages[count].name = strdup(name);
     packages[count].version = strdup(version);
+    if (packages[count].name == NULL || packages[count].version == NULL) {
+      fprintf(stderr, "failed to allocate memory for package\n");
+      free(packages[count].name);
+      free(packages[count].version);
+      packages[count].name = NULL;
+      packages[count].version = NULL;
+      fclose(pipe);
+      waitpid(pid, &status, 0);
+      return -1;
+    }
     count++;
   }
 
-  if (pclose(pipe) == -1) {
-    fprintf(stderr, "failed to finish '%s': %s\n", command, strerror(errno));
+  if (fclose(pipe) != 0) {
+    fprintf(stderr, "failed to read output of '%s': %s\n", argv[0],
+            strerror(errno));
+  }
+
+  if (waitpid(pid, &status, 0) == -1) {
+    fprintf(stderr, "failed to wait for '%s': %s\n", argv[0], strerror(errno));
+    return -1;
+  }
+
+  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    fprintf(stderr, "'%s' did not exit successfully\n", argv[0]);
+    return -1;
   }
 
   packages[count].name = NULL;
   packages[count].version = NULL;
+  return 0;
 }
 
-void update_package(Config *config, Package *package) {
-  const char *manager = PACKAGE_MANAGER[config->platform];
-  const char *arguments;
-  char command[PAIR_SIZE];
+int update_package(Config *config, Package *package) {
+  const char *argv[8];
+  size_t argc = 0;
+
+  if (!is_valid_package_name(package->name)) {
+    fprintf(stderr, "refusing to update package with unsafe name '%s'\n",
+            package->name != NULL ? package->name : "(null)");
+    return -1;
+  }
 
   switch (config->platform) {
   case UBUNTU:
   case DEBIAN:
-    arguments = "install --only-upgrade -y";
+    argv[argc++] = "apt";
+    argv[argc++] = "install";
+    argv[argc++] = "--only-upgrade";
+    argv[argc++] = "-y";
     break;
   case FEDORA:
-    arguments = "upgrade -y";
+    argv[argc++] = "dnf";
+    argv[argc++] = "upgrade";
+    argv[argc++] = "-y";
     break;
   case ARCH:
-    arguments = "-S --noconfirm";
+    argv[argc++] = "pacman";
+    argv[argc++] = "-S";
+    argv[argc++] = "--noconfirm";
     break;
   default:
     fprintf(stderr, "cannot update package, platform is unknown\n");
-    return;
+    return -1;
   }
 
-  snprintf(command, sizeof(command), "%s %s %s", manager, arguments,
-           package->name);
+  argv[argc++] = package->name;
+  argv[argc] = NULL;
 
-  if (system(command) == -1) {
-    fprintf(stderr, "failed to run '%s': %s\n", command, strerror(errno));
-  }
+  return run_command(argv);
 }
 
 void cleanup_packages(Package *packages) {
   for (size_t i = 0; i < SYSTEM_MAX_PACKAGES; i++) {
-    if (packages[i].name != NULL) {
-      free(packages[i].name);
-    }
-    if (packages[i].version != NULL) {
-      free(packages[i].version);
-    }
+    free(packages[i].name);
+    free(packages[i].version);
   }
   free(packages);
 }

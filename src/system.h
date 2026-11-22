@@ -10,8 +10,10 @@ typedef struct Package {
   char *version;
 } Package;
 
-void load_packages(Config *config, Package *packages);
-void update_package(Config *config, Package *package);
+int load_packages(Config *config, Package *packages);
+
+int update_package(Config *config, Package *package);
+
 void cleanup_packages(Package *packages);
 
 #endif

@@ -1,11 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "config.h"
+
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 const char *PACKAGE_MANAGER[] = {
     [UBUNTU] = "apt",  [DEBIAN] = "apt",      [FEDORA] = "dnf",
@@ -53,9 +57,30 @@ static void free_pair_array(Pair *pairs, int size) {
   free(pairs);
 }
 
-void parse_config(Config *config) {
-  Pair *pairs;
+static FILE *open_config_read(const char *path) {
+  int fd;
+  struct stat st;
   FILE *file;
+
+  fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (fd == -1) {
+    return NULL;
+  }
+  if (fstat(fd, &st) == -1 || !S_ISREG(st.st_mode)) {
+    close(fd);
+    errno = EINVAL;
+    return NULL;
+  }
+  file = fdopen(fd, "r");
+  if (file == NULL) {
+    close(fd);
+    return NULL;
+  }
+  return file;
+}
+
+void parse_config(Config *config, FILE *file) {
+  Pair *pairs;
   char line[PAIR_SIZE];
   int counter = 0;
 
@@ -66,20 +91,12 @@ void parse_config(Config *config) {
 
   pairs = init_pair_array(PAIR_AMOUNT);
 
-  file = fopen(CONFIG_PATH, "r");
-  if (file == NULL) {
-    fprintf(stderr, "%s couldn't be opened for reading with %s\n", CONFIG_PATH,
-            strerror(errno));
-    free_pair_array(pairs, PAIR_AMOUNT);
-    exit(EXIT_FAILURE);
-  }
-
   while (fgets(line, sizeof(line), file) != NULL) {
     char *key;
     char *separator;
     char *value;
 
-    line[strcspn(line, "\n")] = '\0';
+    line[strcspn(line, "\r\n")] = '\0';
 
     if (line[0] == '\0' || line[0] == '#') {
       continue;
@@ -87,7 +104,6 @@ void parse_config(Config *config) {
 
     if (counter >= PAIR_AMOUNT) {
       fprintf(stderr, "config in %s has too many lines\n", CONFIG_PATH);
-      fclose(file);
       free_pair_array(pairs, PAIR_AMOUNT);
       exit(EXIT_FAILURE);
     }
@@ -104,9 +120,6 @@ void parse_config(Config *config) {
     snprintf(pairs[counter].value, PAIR_SIZE, "%s", value);
     counter++;
   }
-
-  fclose(file);
-  file = NULL;
 
   for (int i = 0; i < counter; i++) {
     if (strcmp(pairs[i].key, "name") == 0) {
@@ -137,52 +150,78 @@ void parse_config(Config *config) {
   }
 
   free_pair_array(pairs, PAIR_AMOUNT);
-  pairs = NULL;
 
   if (config->platform == UNKNOWN) {
     load_platform(config);
   }
 }
 
-void write_config(Config *config) {
-  FILE *file = fopen(CONFIG_PATH, "w");
-  if (file == NULL) {
-    fprintf(stderr, "%s couldn't be opened for writing with %s\n", CONFIG_PATH,
+int write_config(Config *config) {
+  int fd;
+  FILE *file;
+
+  fd = open(CONFIG_PATH,
+            O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0640);
+  if (fd == -1) {
+    fprintf(stderr, "%s couldn't be opened for writing: %s\n", CONFIG_PATH,
             strerror(errno));
-    exit(EXIT_FAILURE);
+    return -1;
   }
+  if (fchmod(fd, 0640) == -1) {
+    fprintf(stderr, "%s: fchmod failed: %s\n", CONFIG_PATH, strerror(errno));
+  }
+
+  file = fdopen(fd, "w");
+  if (file == NULL) {
+    fprintf(stderr, "%s couldn't be opened for writing: %s\n", CONFIG_PATH,
+            strerror(errno));
+    close(fd);
+    return -1;
+  }
+
   fprintf(file, "name=%s\n", config->name);
   fprintf(file, "url=%s\n", config->url);
   fprintf(file, "interval=%u\n", config->interval);
   fprintf(file, "platform=%u\n", config->platform);
 
-  fclose(file);
-  file = NULL;
+  if (fclose(file) != 0) {
+    fprintf(stderr, "%s couldn't be written: %s\n", CONFIG_PATH,
+            strerror(errno));
+    return -1;
+  }
+  return 0;
 }
 
 void load_config(Config *config) {
-  FILE *file = fopen(CONFIG_PATH, "r");
+  FILE *file;
 
   config->name = NULL;
   config->url = NULL;
   config->platform = UNKNOWN;
   config->interval = 0;
 
+  file = open_config_read(CONFIG_PATH);
   if (file == NULL) {
-    set_string(&config->name, NAME);
-    set_string(&config->url, "");
-    config->interval = INTERVAL_SECONDS;
-    config->platform = UNKNOWN;
-
-    write_config(config);
-
-    return;
+    if (errno == ENOENT) {
+      set_string(&config->name, NAME);
+      set_string(&config->url, "");
+      config->interval = INTERVAL_SECONDS;
+      load_platform(config);
+      if (write_config(config) != 0) {
+        fprintf(stderr,
+                "warning: could not write default config to %s; continuing "
+                "with defaults\n",
+                CONFIG_PATH);
+      }
+      return;
+    }
+    fprintf(stderr, "%s couldn't be opened for reading: %s\n", CONFIG_PATH,
+            strerror(errno));
+    exit(EXIT_FAILURE);
   }
 
+  parse_config(config, file);
   fclose(file);
-  file = NULL;
-
-  parse_config(config);
 
   if (config->name == NULL) {
     set_string(&config->name, NAME);
@@ -235,7 +274,6 @@ void load_platform(Config *config) {
   }
 
   fclose(file);
-  file = NULL;
 }
 
 void cleanup_config(Config *config) {

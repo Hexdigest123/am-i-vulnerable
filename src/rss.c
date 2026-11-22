@@ -105,7 +105,6 @@ static int is_element(const xmlNode *node, const char *name) {
          xmlStrcasecmp(node->name, BAD_CAST name) == 0;
 }
 
-/* RSS elements such as <title> and <link> are not namespaced. */
 static int is_rss_element(const xmlNode *node, const char *name) {
   return is_element(node, name) && (node->ns == NULL || node->ns->href == NULL);
 }
@@ -184,10 +183,6 @@ static int add_category(RssItem *item, const xmlNode *node) {
 }
 
 static int parse_package(const xmlNode *node, RssPackage *package) {
-  /*
-   * <logiq:package> has no text content. Every value is an attribute and
-   * omitted attributes stay NULL. Attribute order does not matter here.
-   */
   if (set_node_prop(node, "ecosystem", &package->ecosystem) != 0 ||
       set_node_prop(node, "name", &package->name) != 0 ||
       set_node_prop(node, "purl", &package->purl) != 0 ||
@@ -221,10 +216,6 @@ static int add_package(RssItem *item, const xmlNode *node) {
          sizeof(item->packages[item->package_count]));
   item->package_count++;
 
-  /*
-   * Increment the count first so free_rss() also releases partially filled
-   * fields if an allocation below fails.
-   */
   return parse_package(node, &item->packages[item->package_count - 1]);
 }
 
@@ -442,13 +433,7 @@ RssFeed *parse_rss(const char *xml, size_t length) {
     return NULL;
   }
 
-  /*
-   * XML_PARSE_NONET prevents network access from the parser. Do not add
-   * XML_PARSE_NOENT, XML_PARSE_DTDLOAD, or XML_PARSE_HUGE: feed data is
-   * untrusted input.
-   */
-  doc = xmlReadMemory(xml, (int)length, "feed.xml", NULL,
-                      XML_PARSE_NONET | XML_PARSE_RECOVER);
+  doc = xmlReadMemory(xml, (int)length, "feed.xml", NULL, XML_PARSE_NONET);
   if (doc == NULL) {
     return NULL;
   }
