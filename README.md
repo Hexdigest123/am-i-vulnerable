@@ -16,7 +16,13 @@ VERSION                             release version
 
 ## Dependencies
 
-A C11 compiler, GNU Make, and systemd. There are no third-party libraries.
+A C11 compiler, GNU Make, `pkg-config`, libcurl, libxml2, and systemd.
+
+On Debian/Ubuntu install the development packages with:
+
+```bash
+sudo apt install build-essential pkg-config libcurl4-openssl-dev libxml2-dev
+```
 
 ## Build and run
 

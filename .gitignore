@@ -1,3 +1,6 @@
 /am-i-vulnerable
+/am-i-vulnerable.conf
+/build/
 /dist/
 *.o
+.nvim/

@@ -7,7 +7,6 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/am-i-vulnerable
-Environment=AMI_VULNERABLE_INTERVAL_SECONDS=18000
 Restart=on-failure
 RestartSec=10s
 
